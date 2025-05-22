@@ -98,17 +98,23 @@ impl EnclaveArtifactBuilder {
             if let Some(parent_path) = PathBuf::from(manifest_path).parent() {
                 certificate_path = Some(canonicalize(parent_path.join(&signature.certificate)).await?);
 
-                let key_str = signature.key.as_str();
-                if key_str.starts_with("arn:aws:kms:") {
-                    // It's an ARN, pass it directly as a PathBuf
-                    key_path = Some(PathBuf::from(key_str));
+                let key_path_candidate = &signature.key;
+
+                if let Some(key_str) = key_path_candidate.to_str() {
+                    if key_str.starts_with("arn:aws:kms:") {
+                        // It's an ARN, pass it directly as a PathBuf
+                        key_path = Some(PathBuf::from(key_str));
+                    } else {
+                        key_path = Some(canonicalize(parent_path.join(key_path_candidate)).await?);
+                    }
                 } else {
-                    key_path = Some(canonicalize(parent_path.join(key_str)).await?);
+                    return Err(anyhow!("Key path contains invalid UTF-8"));
                 }
             } else {
                 return Err(anyhow!("Failed to get parent path of manifest"));
             }
         }
+
 
         let eif_info = self
             .image_to_eif(&amended_img, &build_dir, EIF_FILE_NAME, key_path, certificate_path)
