@@ -254,30 +254,19 @@ impl EnclaveArtifactBuilder {
     ) -> Result<EIFInfo> {
         let build_dir_path = build_dir.path().to_str().unwrap();
 
-        // There is currently no way to point nitro-cli to a local image ID; it insists
-        // on attempting to pull the image (this may be a bug;. As a workaround, give our image a random
-        // tag, and pass that.
         let img_tag = Uuid::new_v4().to_string();
         self.image_manager.tag_image(source_img, &img_tag).await?;
-
         debug!("tagged intermediate image: {}", img_tag);
 
-        // Note: we're deliberately not modeling nitro-cli as part of ResolvedSources.
-        // I might be overthinking this, but it doesn't directly end up as part of the
-        // final artifact, and it is very likely that two different versions of nitro-cli
-        // would output an identical EIF, so this seems like it should be modeled as more
-        // of a toolchain than a source. In any case there isn't much use-case for overriding
-        // it right now (perhaps pinning though), so deferring that problem for later.
         let nitro_cli = self.resolve_external_source_image(NITRO_CLI_IMAGE).await?;
-
         debug!("using nitro-cli image: {nitro_cli}");
 
-        let mut cmd = vec![
-            "build-enclave",
-            "--docker-uri",
-            &img_tag,
-            "--output-file",
-            eif_name,
+        let mut cmd: Vec<String> = vec![
+            "build-enclave".to_string(),
+            "--docker-uri".to_string(),
+            img_tag.clone(),
+            "--output-file".to_string(),
+            eif_name.to_string(),
         ];
 
         let mut mounts = vec![
@@ -298,17 +287,17 @@ impl EnclaveArtifactBuilder {
         if let (Some(key_path), Some(certificate_path)) = (key, certificate) {
             let key_path_str = key_path.to_string_lossy().into_owned();
 
-            cmd.push("--signing-certificate");
-            cmd.push("/var/run/certificate");
+            cmd.push("--signing-certificate".to_string());
+            cmd.push("/var/run/certificate".to_string());
 
             let is_kms_arn = key_path_str.starts_with("arn:aws:kms:");
 
             if is_kms_arn {
-                cmd.push("--private-key");
-                cmd.push(&key_path_str);
+                cmd.push("--private-key".to_string());
+                cmd.push(key_path_str.clone());
             } else {
-                cmd.push("--private-key");
-                cmd.push("/var/run/key");
+                cmd.push("--private-key".to_string());
+                cmd.push("/var/run/key".to_string());
 
                 mounts.push(Mount {
                     typ: Some(MountTypeEnum::BIND),
@@ -326,35 +315,13 @@ impl EnclaveArtifactBuilder {
             });
         }
 
-        // if let (Some(key_path), Some(certificate_path)) = (key, certificate) {
-        //     cmd.push("--signing-certificate");
-        //     cmd.push("/var/run/certificate");
-        //     cmd.push("--private-key");
-        //     cmd.push("/var/run/key");
-
-
-        //     mounts.push(Mount {
-        //         typ: Some(MountTypeEnum::BIND),
-        //         source: Some(key_path.to_string_lossy().to_string()),
-        //         target: Some(String::from("/var/run/key")),
-        //         ..Default::default()
-        //     });
-
-        //     mounts.push(Mount {
-        //         typ: Some(MountTypeEnum::BIND),
-        //         source: Some(certificate_path.to_string_lossy().to_string()),
-        //         target: Some(String::from("/var/run/certificate")),
-        //         ..Default::default()
-        //     });
-        // }
-
         let build_container_id = self
             .docker
             .create_container::<&str, &str>(
                 None,
                 Config {
                     image: Some(nitro_cli.to_str()),
-                    cmd: Some(cmd),
+                    cmd: Some(cmd.iter().map(|s| s.as_str()).collect()),
                     attach_stderr: Some(true),
                     attach_stdout: Some(true),
                     host_config: Some(HostConfig {
@@ -413,11 +380,11 @@ impl EnclaveArtifactBuilder {
             .try_collect::<Vec<_>>()
             .await?
             .first()
-            .ok_or_else(|| anyhow!("missing wait response from daemon",))?
+            .ok_or_else(|| anyhow!("missing wait response from daemon"))?
             .status_code;
 
         if status_code != 0 {
-            return Err(anyhow!("non-zero exit code from nitro-cli",));
+            return Err(anyhow!("non-zero exit code from nitro-cli"));
         }
 
         let mut json_buf = Vec::with_capacity(4096);
