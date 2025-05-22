@@ -296,7 +296,7 @@ impl EnclaveArtifactBuilder {
         ];
 
         if let (Some(key_path), Some(certificate_path)) = (key, certificate) {
-            let key_path_str = key_path.to_string_lossy();
+            let key_path_str = key_path.to_string_lossy().into_owned();
 
             cmd.push("--signing-certificate");
             cmd.push("/var/run/certificate");
