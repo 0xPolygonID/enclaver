@@ -295,18 +295,21 @@ impl EnclaveArtifactBuilder {
             },
         ];
 
+        let mut key_path_str = None;
+
         if let (Some(key_path), Some(certificate_path)) = (key, certificate) {
-            let key_path_str = key_path.to_string_lossy().into_owned();
+            let owned_key_str = key_path.to_string_lossy().into_owned();
+            key_path_str = Some(owned_key_str);
 
             cmd.push("--signing-certificate");
             cmd.push("/var/run/certificate");
 
-            let is_kms_arn = key_path_str.starts_with("arn:aws:kms:");
+            let is_kms_arn = key_path_str.as_ref().unwrap().starts_with("arn:aws:kms:");
 
             if is_kms_arn {
                 // If it's an ARN, pass it directly to the command
                 cmd.push("--private-key");
-                cmd.push(&key_path_str);
+                cmd.push(key_path_str.as_ref().unwrap());
             } else {
                 // If it's a local path, mount the file and use the path under /var/run
                 cmd.push("--private-key");
@@ -314,13 +317,12 @@ impl EnclaveArtifactBuilder {
 
                 mounts.push(Mount {
                     typ: Some(MountTypeEnum::BIND),
-                    source: Some(key_path_str.to_string()),
+                    source: Some(key_path_str.clone().unwrap()),
                     target: Some(String::from("/var/run/key")),
                     ..Default::default()
                 });
             }
 
-            // Always mount the certificate (we assume it can't be an ARN)
             mounts.push(Mount {
                 typ: Some(MountTypeEnum::BIND),
                 source: Some(certificate_path.to_string_lossy().to_string()),
@@ -328,7 +330,6 @@ impl EnclaveArtifactBuilder {
                 ..Default::default()
             });
         }
-
 
         // if let (Some(key_path), Some(certificate_path)) = (key, certificate) {
         //     cmd.push("--signing-certificate");
