@@ -97,7 +97,14 @@ impl EnclaveArtifactBuilder {
         if let Some(signature) = &manifest.signature {
             if let Some(parent_path) = PathBuf::from(manifest_path).parent() {
                 certificate_path = Some(canonicalize(parent_path.join(&signature.certificate)).await?);
-                key_path = Some(canonicalize(parent_path.join(&signature.key)).await?);
+
+                let key_str = signature.key.as_str();
+                if key_str.starts_with("arn:aws:kms:") {
+                    // It's an ARN, pass it directly as a PathBuf
+                    key_path = Some(PathBuf::from(key_str));
+                } else {
+                    key_path = Some(canonicalize(parent_path.join(key_str)).await?);
+                }
             } else {
                 return Err(anyhow!("Failed to get parent path of manifest"));
             }
@@ -283,19 +290,31 @@ impl EnclaveArtifactBuilder {
         ];
 
         if let (Some(key_path), Some(certificate_path)) = (key, certificate) {
+            let key_path_str = key_path.to_string_lossy();
+
             cmd.push("--signing-certificate");
             cmd.push("/var/run/certificate");
-            cmd.push("--private-key");
-            cmd.push("/var/run/key");
 
+            let is_kms_arn = key_path_str.starts_with("arn:aws:kms:");
 
-            mounts.push(Mount {
-                typ: Some(MountTypeEnum::BIND),
-                source: Some(key_path.to_string_lossy().to_string()),
-                target: Some(String::from("/var/run/key")),
-                ..Default::default()
-            });
+            if is_kms_arn {
+                // If it's an ARN, pass it directly to the command
+                cmd.push("--private-key");
+                cmd.push(&key_path_str);
+            } else {
+                // If it's a local path, mount the file and use the path under /var/run
+                cmd.push("--private-key");
+                cmd.push("/var/run/key");
 
+                mounts.push(Mount {
+                    typ: Some(MountTypeEnum::BIND),
+                    source: Some(key_path_str.to_string()),
+                    target: Some(String::from("/var/run/key")),
+                    ..Default::default()
+                });
+            }
+
+            // Always mount the certificate (we assume it can't be an ARN)
             mounts.push(Mount {
                 typ: Some(MountTypeEnum::BIND),
                 source: Some(certificate_path.to_string_lossy().to_string()),
@@ -303,6 +322,29 @@ impl EnclaveArtifactBuilder {
                 ..Default::default()
             });
         }
+
+
+        // if let (Some(key_path), Some(certificate_path)) = (key, certificate) {
+        //     cmd.push("--signing-certificate");
+        //     cmd.push("/var/run/certificate");
+        //     cmd.push("--private-key");
+        //     cmd.push("/var/run/key");
+
+
+        //     mounts.push(Mount {
+        //         typ: Some(MountTypeEnum::BIND),
+        //         source: Some(key_path.to_string_lossy().to_string()),
+        //         target: Some(String::from("/var/run/key")),
+        //         ..Default::default()
+        //     });
+
+        //     mounts.push(Mount {
+        //         typ: Some(MountTypeEnum::BIND),
+        //         source: Some(certificate_path.to_string_lossy().to_string()),
+        //         target: Some(String::from("/var/run/certificate")),
+        //         ..Default::default()
+        //     });
+        // }
 
         let build_container_id = self
             .docker
