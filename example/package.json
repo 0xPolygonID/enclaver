@@ -10,7 +10,7 @@
   "main": "app.js",
   "dependencies": {
     "express": "^4.18.2",
-    "axios": "^1.8.3",
+    "axios": "1.13.5",
     "https-proxy-agent": "7.0.6"
   },
   "engines": {
